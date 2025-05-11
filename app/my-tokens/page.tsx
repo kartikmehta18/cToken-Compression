@@ -11,8 +11,9 @@ import { useWallet } from "@/hooks/use-wallet"
 import { useSolanaWallet } from "@/hooks/use-solana-wallet"
 import { getTokens } from "@/lib/token-service"
 import type { TokenRecord } from "@/lib/supabase"
-import { AlertCircle, Wallet, QrCode, ArrowRight } from "lucide-react"
+import { AlertCircle, Wallet, QrCode, ArrowRight, Loader2 } from "lucide-react"
 import Link from "next/link"
+import { supabase } from "@/lib/supabase"
 
 export default function MyTokensPage() {
   const router = useRouter()

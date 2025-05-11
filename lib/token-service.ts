@@ -428,3 +428,100 @@ export async function getUserCompressedTokens(walletAddress: string) {
     return []
   }
 }
+
+export async function purchaseToken(
+  tokenId: string,
+  amount: number,
+  buyerAddress: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Fetch token details
+    const { data: token, error: fetchError } = await supabase
+      .from('tokens')
+      .select('*')
+      .eq('id', tokenId)
+      .single();
+
+    if (fetchError || !token) {
+      return { success: false, error: 'Token not found' };
+    }
+
+    // Validate inputs
+    if (!token.price || isNaN(Number(token.price)) || !amount || isNaN(amount)) {
+      return { success: false, error: 'Invalid token price or amount' };
+    }
+
+    // Calculate total price in wei
+    const tokenPrice = Number(token.price);
+    const purchaseAmount = Number(amount);
+    const totalPrice = tokenPrice * purchaseAmount;
+
+    if (isNaN(totalPrice)) {
+      return { success: false, error: 'Invalid price calculation' };
+    }
+
+    // Convert to wei with proper formatting
+    const priceInWei = ethers.parseUnits(totalPrice.toFixed(18), 18);
+
+    // Create transaction data
+    const transactionData = {
+      from: buyerAddress,
+      to: token.creator_address,
+      value: priceInWei,
+      data: '0x',
+      gasLimit: 21000,
+      chainId: 11155111, // Sepolia testnet
+    };
+
+    // Request transaction through MetaMask
+    if (typeof window === 'undefined' || !window.ethereum) {
+      return { success: false, error: 'MetaMask not found' };
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    
+    // Send transaction
+    const tx = await signer.sendTransaction(transactionData);
+    
+    // Wait for transaction confirmation
+    const receipt = await tx.wait();
+
+    if (!receipt) {
+      return { success: false, error: 'Transaction failed' };
+    }
+
+    // Update token supply in database
+    const { error: updateError } = await supabase
+      .from('tokens')
+      .update({ supply: token.supply - amount })
+      .eq('id', tokenId);
+
+    if (updateError) {
+      return { success: false, error: 'Failed to update token supply' };
+    }
+
+    // Add purchase record to user's tokens
+    const { error: purchaseError } = await supabase
+      .from('user_tokens')
+      .insert({
+        user_address: buyerAddress,
+        token_id: tokenId,
+        amount: amount,
+        purchase_tx: receipt.hash
+      });
+
+    if (purchaseError) {
+      console.error('Error recording purchase:', purchaseError);
+      // Don't return error here as the purchase was successful
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error purchasing token:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to purchase token',
+    };
+  }
+}
